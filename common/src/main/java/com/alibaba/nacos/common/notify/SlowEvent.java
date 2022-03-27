@@ -18,13 +18,13 @@ package com.alibaba.nacos.common.notify;
 
 /**
  * This event share one event-queue.
- *
+ * 之所以称之为慢事件，可能因为所有的事件都共享同一个队列吧。
  * @author <a href="mailto:liaochuntao@live.com">liaochuntao</a>
  * @author zongtanghu
  */
 @SuppressWarnings("PMD.AbstractClassShouldStartWithAbstractNamingRule")
 public abstract class SlowEvent extends Event {
-    
+
     @Override
     public long sequence() {
         return 0;

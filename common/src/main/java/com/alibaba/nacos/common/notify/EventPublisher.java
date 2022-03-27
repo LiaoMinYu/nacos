@@ -21,55 +21,56 @@ import com.alibaba.nacos.common.notify.listener.Subscriber;
 
 /**
  * Event publisher.
- *
+ * 发布者指的是Nacos中的事件发布者，顶级接口为EventPublisher。
+ * 发布者的主要功能就是新增订阅者、通知订阅者,目前有两种类型的发布者分别是DefaultPublisher和DefaultSharePublisher。
  * @author <a href="mailto:liaochuntao@live.com">liaochuntao</a>
  * @author zongtanghu
  */
 public interface EventPublisher extends Closeable {
-    
+
     /**
      * Initializes the event publisher.
-     *
+     * 初始化事件发布者
      * @param type       {@link Event >}
      * @param bufferSize Message staging queue size
      */
     void init(Class<? extends Event> type, int bufferSize);
-    
+
     /**
      * The number of currently staged events.
-     *
+     * 当前暂存的事件数量
      * @return event size
      */
     long currentEventSize();
-    
+
     /**
      * Add listener.
-     *
+     * 添加订阅者
      * @param subscriber {@link Subscriber}
      */
     void addSubscriber(Subscriber subscriber);
-    
+
     /**
      * Remove listener.
-     *
+     * 移除订阅者
      * @param subscriber {@link Subscriber}
      */
     void removeSubscriber(Subscriber subscriber);
-    
+
     /**
      * publish event.
-     *
+     * 发布事件
      * @param event {@link Event}
      * @return publish event is success
      */
     boolean publish(Event event);
-    
+
     /**
      * Notify listener.
-     *
+     * 通知订阅者
      * @param subscriber {@link Subscriber}
      * @param event      {@link Event}
      */
     void notifySubscriber(Subscriber subscriber, Event event);
-    
+
 }

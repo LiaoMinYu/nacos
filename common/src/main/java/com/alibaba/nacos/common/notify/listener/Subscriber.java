@@ -22,39 +22,39 @@ import java.util.concurrent.Executor;
 
 /**
  * An abstract subscriber class for subscriber interface.
- *
+ * 这里的单事件订阅者指的是当前的订阅者只能订阅一种类型的事件。
  * @author <a href="mailto:liaochuntao@live.com">liaochuntao</a>
  * @author zongtanghu
  */
 @SuppressWarnings("PMD.AbstractClassShouldStartWithAbstractNamingRule")
 public abstract class Subscriber<T extends Event> {
-    
+
     /**
      * Event callback.
-     *
+     * 事件处理入口，由对应的事件发布器调用
      * @param event {@link Event}
      */
     public abstract void onEvent(T event);
-    
+
     /**
      * Type of this subscriber's subscription.
-     *
+     * 订阅的事件类型
      * @return Class which extends {@link Event}
      */
     public abstract Class<? extends Event> subscribeType();
-    
+
     /**
      * It is up to the listener to determine whether the callback is asynchronous or synchronous.
-     *
+     * 线程执行器，由具体的实现类来决定是异步还是同步调用
      * @return {@link Executor}
      */
     public Executor executor() {
         return null;
     }
-    
+
     /**
      * Whether to ignore expired events.
-     *
+     * 是否忽略过期事件。
      * @return default value is {@link Boolean#FALSE}
      */
     public boolean ignoreExpireEvent() {
