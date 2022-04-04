@@ -18,15 +18,20 @@ package com.alibaba.nacos.common.task;
 
 /**
  * Task processor.
+ * <p>
+ * NacosTask作为Nacos内部Task的统一接口。基本上系统级别的任务都是通过它的相关子类实现。
+ * 此接口的子类分为了两个类型AbstractExecuteTask、AbstractDelayTask。
+ * 分别代表立即执行的任务和延迟执行的任务,
+ * 对任务体系作了更细的划分。它定义了此任务是否需要被执行。
  *
  * @author Nacos
  */
 public interface NacosTaskProcessor {
-    
+
     /**
      * Process task.
      *
-     * @param task     task.
+     * @param task task.
      * @return process task result.
      */
     boolean process(NacosTask task);

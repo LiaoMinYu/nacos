@@ -18,16 +18,17 @@ package com.alibaba.nacos.naming.healthcheck.heartbeat;
 
 /**
  * Check and update statues of ephemeral instances, remove them if they have been expired.
+ * 检查并更新短暂实例的状态，如果它们已过期，则将其删除。
  *
- * @author xiweng.yy
+ *  @author xiweng.yy
  */
 public interface BeatCheckTask extends Runnable {
-    
+
     /**
      * Task key.
      *
      * @return task key
      */
     String taskKey();
-    
+
 }

@@ -31,60 +31,73 @@ import java.util.Collection;
 /**
  * Client beat check task of service for version 2.x.
  *
+ * 在执行健康检查过程中会使用InstanceBeatCheckTaskInterceptorChain中的拦截器列表对将要进行的任务进行拦截处理。
+ * 这个将要进行的任务是InstanceBeatCheckTask，它内部维护了一个Checker列表，用于添加额外的检查器。
+ *
+ * 在功能性上ClientBeatCheckTaskV2是用于检查心跳请求的执行状态。
+ * HealthCheckTaskV2则是检查其他连接的状态。在内部的处理逻辑上也有明显的不同，
+ * 前者使用了拦截器来处理，后者使用了处理器来处理
  * @author nkorange
  */
 public class ClientBeatCheckTaskV2 extends AbstractExecuteTask implements BeatCheckTask, NacosHealthCheckTask {
-    
+
+
     private final IpPortBasedClient client;
-    
+
     private final String taskId;
-    
+
+    /**
+     * 拦截器链
+     */
     private final InstanceBeatCheckTaskInterceptorChain interceptorChain;
-    
+
     public ClientBeatCheckTaskV2(IpPortBasedClient client) {
         this.client = client;
         this.taskId = client.getResponsibleId();
         this.interceptorChain = InstanceBeatCheckTaskInterceptorChain.getInstance();
     }
-    
+
     public GlobalConfig getGlobalConfig() {
         return ApplicationUtils.getBean(GlobalConfig.class);
     }
-    
+
     @Override
     public String taskKey() {
         return KeyBuilder.buildServiceMetaKey(client.getClientId(), String.valueOf(client.isEphemeral()));
     }
-    
+
     @Override
     public String getTaskId() {
         return taskId;
     }
-    
+
     @Override
     public void doHealthCheck() {
         try {
+            // 获取当前客户端下所有的服务
             Collection<Service> services = client.getAllPublishedService();
             for (Service each : services) {
+                // 获取Service对应的InstancePublishInfo 转换为HealthCheckInstancePublishInfo
                 HealthCheckInstancePublishInfo instance = (HealthCheckInstancePublishInfo) client
                         .getInstancePublishInfo(each);
+                // 为每一个Instance生成一个心跳检查任务InstanceBeatCheckTask，并使用拦截器来处理
                 interceptorChain.doInterceptor(new InstanceBeatCheckTask(client, each, instance));
             }
         } catch (Exception e) {
             Loggers.SRV_LOG.warn("Exception while processing client beat time out.", e);
         }
     }
-    
+
     @Override
     public void run() {
         doHealthCheck();
     }
-    
+
     @Override
     public void passIntercept() {
         doHealthCheck();
     }
-    
+
     @Override
     public void afterIntercept() {
     }

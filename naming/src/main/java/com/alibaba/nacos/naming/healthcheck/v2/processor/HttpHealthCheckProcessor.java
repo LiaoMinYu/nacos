@@ -44,28 +44,35 @@ import static com.alibaba.nacos.naming.misc.Loggers.SRV_LOG;
  * TCP health check processor for v2.x.
  *
  * <p>Current health check logic is same as v1.x. TODO refactor health check for v2.x.
- *
+ * Http方式的心跳检查处理器
  * @author xiweng.yy
  */
 @Component
 public class HttpHealthCheckProcessor implements HealthCheckProcessorV2 {
-    
+    /**
+     * 当前处理的类型
+     */
     public static final String TYPE = HealthCheckType.HTTP.name();
-    
+    /**
+     * 请求模板，用于处理http请求
+     */
     private static final NacosAsyncRestTemplate ASYNC_REST_TEMPLATE = HttpClientManager
             .getProcessorNacosAsyncRestTemplate();
-    
+    /**
+     * 健康检查公用方法集合
+     */
     private final HealthCheckCommonV2 healthCheckCommon;
-    
+
     private final SwitchDomain switchDomain;
-    
+
     public HttpHealthCheckProcessor(HealthCheckCommonV2 healthCheckCommon, SwitchDomain switchDomain) {
         this.healthCheckCommon = healthCheckCommon;
         this.switchDomain = switchDomain;
     }
-    
+
     @Override
     public void process(HealthCheckTaskV2 task, Service service, ClusterMetadata metadata) {
+        // 获取指定Service对应的InstancePublishInfo
         HealthCheckInstancePublishInfo instance = (HealthCheckInstancePublishInfo) task.getClient()
                 .getInstancePublishInfo(service);
         if (null == instance) {
@@ -76,19 +83,21 @@ public class HttpHealthCheckProcessor implements HealthCheckProcessorV2 {
             if (!instance.tryStartCheck()) {
                 SRV_LOG.warn("http check started before last one finished, service: {} : {} : {}:{}",
                         service.getGroupedServiceName(), instance.getCluster(), instance.getIp(), instance.getPort());
+                // 更新instance的开始检查状态
                 healthCheckCommon
                         .reEvaluateCheckRT(task.getCheckRtNormalized() * 2, task, switchDomain.getHttpHealthParams());
                 return;
             }
-            
+            // 获取检查器
             Http healthChecker = (Http) metadata.getHealthChecker();
+            // 获取实例所在的网络位置
             int ckPort = metadata.isUseInstancePortForCheck() ? instance.getPort() : metadata.getHealthyCheckPort();
             URL host = new URL("http://" + instance.getIp() + ":" + ckPort);
             URL target = new URL(host, healthChecker.getPath());
             Map<String, String> customHeaders = healthChecker.getCustomHeaders();
             Header header = Header.newInstance();
             header.addAll(customHeaders);
-            
+            // 发送http请求
             ASYNC_REST_TEMPLATE.get(target.toString(), header, Query.EMPTY, String.class,
                     new HttpHealthCheckCallback(instance, task, service));
             MetricsMonitor.getHttpHealthCheckMonitor().incrementAndGet();
@@ -99,33 +108,37 @@ public class HttpHealthCheckProcessor implements HealthCheckProcessorV2 {
                     switchDomain.getHttpHealthParams());
         }
     }
-    
+
     @Override
     public String getType() {
         return TYPE;
     }
-    
+
+    /**
+     * 健康检查回调
+     */
     private class HttpHealthCheckCallback implements Callback<String> {
-        
+
         private final HealthCheckTaskV2 task;
-        
+
         private final Service service;
-        
+
         private final HealthCheckInstancePublishInfo instance;
-        
+
         private long startTime = System.currentTimeMillis();
-        
         public HttpHealthCheckCallback(HealthCheckInstancePublishInfo instance, HealthCheckTaskV2 task,
                 Service service) {
             this.instance = instance;
             this.task = task;
             this.service = service;
         }
-        
+
         @Override
         public void onReceive(RestResult<String> result) {
+            // 设置本次响应时间
             instance.setCheckRt(System.currentTimeMillis() - startTime);
             int httpCode = result.getCode();
+            // 判断请求结果
             if (HttpURLConnection.HTTP_OK == httpCode) {
                 healthCheckCommon.checkOk(task, service, "http:" + httpCode);
                 healthCheckCommon.reEvaluateCheckRT(System.currentTimeMillis() - startTime, task,
@@ -143,7 +156,7 @@ public class HttpHealthCheckProcessor implements HealthCheckProcessorV2 {
                         switchDomain.getHttpHealthParams());
             }
         }
-        
+
         @Override
         public void onError(Throwable throwable) {
             Throwable cause = throwable;
@@ -158,7 +171,7 @@ public class HttpHealthCheckProcessor implements HealthCheckProcessorV2 {
                 }
                 cause = cause.getCause();
             }
-            
+
             // connection error, probably not reachable
             if (throwable instanceof ConnectException) {
                 healthCheckCommon.checkFailNow(task, service, "http:unable2connect:" + throwable.getMessage());
@@ -168,10 +181,10 @@ public class HttpHealthCheckProcessor implements HealthCheckProcessorV2 {
             healthCheckCommon.reEvaluateCheckRT(switchDomain.getHttpHealthParams().getMax(), task,
                     switchDomain.getHttpHealthParams());
         }
-        
+
         @Override
         public void onCancel() {
-        
+
         }
     }
 }

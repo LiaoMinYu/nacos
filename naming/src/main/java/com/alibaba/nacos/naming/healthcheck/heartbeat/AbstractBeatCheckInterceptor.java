@@ -20,13 +20,14 @@ import com.alibaba.nacos.naming.interceptor.NacosNamingInterceptor;
 
 /**
  * Abstract Beat check Interceptor.
- *
+ * 抽象心跳检查拦截器
  * @author xiweng.yy
  */
 public abstract class AbstractBeatCheckInterceptor implements NacosNamingInterceptor<InstanceBeatCheckTask> {
-    
+
     @Override
     public boolean isInterceptType(Class<?> type) {
+        //指定它拦截InstanceBeatCheckTask
         return InstanceBeatCheckTask.class.isAssignableFrom(type);
     }
 }

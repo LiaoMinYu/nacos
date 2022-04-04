@@ -25,11 +25,11 @@ import java.util.Optional;
 
 /**
  * Service enable beat check interceptor.
- *
+ * 用于检查Service是否开启了心跳检查的拦截器
  * @author xiweng.yy
  */
 public class ServiceEnableBeatCheckInterceptor extends AbstractBeatCheckInterceptor {
-    
+
     @Override
     public boolean intercept(InstanceBeatCheckTask object) {
         NamingMetadataManager metadataManager = ApplicationUtils.getBean(NamingMetadataManager.class);
@@ -39,7 +39,7 @@ public class ServiceEnableBeatCheckInterceptor extends AbstractBeatCheckIntercep
         }
         return false;
     }
-    
+
     @Override
     public int order() {
         return Integer.MIN_VALUE;

@@ -45,39 +45,50 @@ import static com.alibaba.nacos.naming.misc.Loggers.SRV_LOG;
  * TCP health check processor for v2.x.
  *
  * <p>Current health check logic is same as v1.x. TODO refactor health check for v2.x.
- *
+ *  Mysql集群健康检查
  * @author xiweng.yy
  */
 @Component
 @SuppressWarnings("PMD.ThreadPoolCreationRule")
 public class MysqlHealthCheckProcessor implements HealthCheckProcessorV2 {
-    
+    /**
+     * 当前处理的类型
+     */
     public static final String TYPE = HealthCheckType.MYSQL.name();
-    
+    /**
+     * 健康检查公用方法集合
+     */
     private final HealthCheckCommonV2 healthCheckCommon;
-    
+
     private final SwitchDomain switchDomain;
-    
+    /**
+     * 连接超时时长
+     */
     public static final int CONNECT_TIMEOUT_MS = 500;
-    
+    /**
+     * 检查时发送一条SQL语句用于判断是否连接成功
+     */
     private static final String CHECK_MYSQL_MASTER_SQL = "show global variables where variable_name='read_only'";
-    
+
     private static final String MYSQL_SLAVE_READONLY = "ON";
-    
+    /**
+     * 数据库连接池
+     */
     private static final ConcurrentMap<String, Connection> CONNECTION_POOL = new ConcurrentHashMap<String, Connection>();
-    
+
     public MysqlHealthCheckProcessor(HealthCheckCommonV2 healthCheckCommon, SwitchDomain switchDomain) {
         this.healthCheckCommon = healthCheckCommon;
         this.switchDomain = switchDomain;
     }
-    
+
     @Override
     public String getType() {
         return TYPE;
     }
-    
+
     @Override
     public void process(HealthCheckTaskV2 task, Service service, ClusterMetadata metadata) {
+        // 获取服务对应的实例
         HealthCheckInstancePublishInfo instance = (HealthCheckInstancePublishInfo) task.getClient()
                 .getInstancePublishInfo(service);
         if (null == instance) {
@@ -93,6 +104,7 @@ public class MysqlHealthCheckProcessor implements HealthCheckProcessorV2 {
                         .reEvaluateCheckRT(task.getCheckRtNormalized() * 2, task, switchDomain.getMysqlHealthParams());
                 return;
             }
+            // 创建MySQL检查任务并执行
             GlobalExecutor.executeMysqlCheckTask(new MysqlCheckTask(task, service, instance, metadata));
             MetricsMonitor.getMysqlHealthCheckMonitor().incrementAndGet();
         } catch (Exception e) {
@@ -102,19 +114,21 @@ public class MysqlHealthCheckProcessor implements HealthCheckProcessorV2 {
                     switchDomain.getMysqlHealthParams());
         }
     }
-    
+    /**
+     * MySQL检查任务
+     */
     private class MysqlCheckTask implements Runnable {
-        
+
         private final HealthCheckTaskV2 task;
-        
+
         private final Service service;
-        
+
         private final HealthCheckInstancePublishInfo instance;
-        
+
         private final ClusterMetadata metadata;
-        
+
         private long startTime = System.currentTimeMillis();
-        
+
         public MysqlCheckTask(HealthCheckTaskV2 task, Service service, HealthCheckInstancePublishInfo instance,
                 ClusterMetadata metadata) {
             this.task = task;
@@ -122,41 +136,50 @@ public class MysqlHealthCheckProcessor implements HealthCheckProcessorV2 {
             this.instance = instance;
             this.metadata = metadata;
         }
-        
+
         @Override
         public void run() {
-            
+
             Statement statement = null;
             ResultSet resultSet = null;
-            
+
             try {
                 String clusterName = instance.getCluster();
+                // 组装连接缓存key
                 String key =
                         service.getGroupedServiceName() + ":" + clusterName + ":" + instance.getIp() + ":" + instance
                                 .getPort();
+                // 从连接池获取mysql连接
                 Connection connection = CONNECTION_POOL.get(key);
+                // 获取健康检查器
                 Mysql config = (Mysql) metadata.getHealthChecker();
-                
+                // 创建连接并缓存
                 if (connection == null || connection.isClosed()) {
                     String url = "jdbc:mysql://" + instance.getIp() + ":" + instance.getPort() + "?connectTimeout="
                             + CONNECT_TIMEOUT_MS + "&socketTimeout=" + CONNECT_TIMEOUT_MS + "&loginTimeout=" + 1;
                     connection = DriverManager.getConnection(url, config.getUser(), config.getPwd());
                     CONNECTION_POOL.put(key, connection);
                 }
-                
+
                 statement = connection.createStatement();
                 statement.setQueryTimeout(1);
-                
+
                 resultSet = statement.executeQuery(config.getCmd());
                 int resultColumnIndex = 2;
-                
+                // 判断执行语句是否是主节点查询语句
                 if (CHECK_MYSQL_MASTER_SQL.equals(config.getCmd())) {
                     resultSet.next();
+                    /**
+                     * 从查询结果判断是主机还是从机
+                     * CHECK_MYSQL_MASTER_SQL 语句执行结果为：[read_only : ON/OFF]
+                     * MYSQL_SLAVE_READONLY 默认为 ON，若返回的是ON说明请求的是主机
+                     * （没人会把主机Master设置为只读状态吧）
+                     */
                     if (MYSQL_SLAVE_READONLY.equals(resultSet.getString(resultColumnIndex))) {
                         throw new IllegalStateException("current node is slave!");
                     }
                 }
-                
+                // 处理检查结果
                 healthCheckCommon.checkOk(task, service, "mysql:+ok");
                 healthCheckCommon.reEvaluateCheckRT(System.currentTimeMillis() - startTime, task,
                         switchDomain.getMysqlHealthParams());
@@ -171,16 +194,16 @@ public class MysqlHealthCheckProcessor implements HealthCheckProcessorV2 {
                 for (int deepth = 0; deepth < maxStackDepth && cause != null; deepth++) {
                     if (cause instanceof SocketTimeoutException || cause instanceof ConnectTimeoutException
                             || cause instanceof TimeoutException || cause.getCause() instanceof TimeoutException) {
-                        
+
                         healthCheckCommon.checkFail(task, service, "mysql:timeout:" + cause.getMessage());
                         healthCheckCommon.reEvaluateCheckRT(task.getCheckRtNormalized() * 2, task,
                                 switchDomain.getMysqlHealthParams());
                         return;
                     }
-                    
+
                     cause = cause.getCause();
                 }
-                
+
                 // connection error, probably not reachable
                 healthCheckCommon.checkFail(task, service, "mysql:error:" + t.getMessage());
                 healthCheckCommon.reEvaluateCheckRT(switchDomain.getMysqlHealthParams().getMax(), task,

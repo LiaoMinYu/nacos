@@ -18,34 +18,34 @@ package com.alibaba.nacos.naming.interceptor;
 
 /**
  * Nacos naming interceptor.
- *
+ * NacosNamingInterceptor接口限定了它的实现必须是处理Interceptable类型。它最主要的功能就是定义了拦截机制。
  * @author xiweng.yy
  */
 public interface NacosNamingInterceptor<T extends Interceptable> {
-    
+
     /**
      * Judge whether the input type is intercepted by this Interceptor.
      *
      * <p>This method only should judge the object type whether need be do intercept. Not the intercept logic.
-     *
+     *  判断输入的参数是否是当前拦截器可处理的类型
      * @param type type
      * @return true if the input type is intercepted by this Interceptor, otherwise false
      */
     boolean isInterceptType(Class<?> type);
-    
+
     /**
      * Do intercept operation.
      *
      * <p>This method is the actual intercept operation.
-     *
+     * 拦截后的操作
      * @param object need intercepted object
      * @return true if object is intercepted, otherwise false
      */
     boolean intercept(T object);
-    
+
     /**
      * The order of interceptor. The lower the number, the earlier the execution.
-     *
+     * 拦截器的优先级，数字越低，优先级越高
      * @return the order number of interceptor
      */
     int order();

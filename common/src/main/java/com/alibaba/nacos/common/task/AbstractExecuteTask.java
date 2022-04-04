@@ -22,7 +22,10 @@ package com.alibaba.nacos.common.task;
  * @author xiweng.yy
  */
 public abstract class AbstractExecuteTask implements NacosTask, Runnable {
-    
+
+    /**
+     * 需要立即执行的任务。
+     */
     @Override
     public boolean shouldProcess() {
         return true;

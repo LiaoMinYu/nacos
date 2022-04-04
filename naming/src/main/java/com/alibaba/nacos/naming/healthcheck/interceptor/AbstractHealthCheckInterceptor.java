@@ -21,11 +21,11 @@ import com.alibaba.nacos.naming.interceptor.NacosNamingInterceptor;
 
 /**
  * Abstract health check interceptor.
- *
+ * 这个抽象类用于限定它的子类只可以拦截NacosHealthCheckTask类型的任务。
  * @author xiweng.yy
  */
 public abstract class AbstractHealthCheckInterceptor implements NacosNamingInterceptor<NacosHealthCheckTask> {
-    
+
     @Override
     public boolean isInterceptType(Class<?> type) {
         return NacosHealthCheckTask.class.isAssignableFrom(type);

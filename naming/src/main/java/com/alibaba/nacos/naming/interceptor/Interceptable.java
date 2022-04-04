@@ -18,17 +18,19 @@ package com.alibaba.nacos.naming.interceptor;
 
 /**
  * Interceptable Interface.
- *
+ *  所有需要被拦截器处理的任务都需要实现此接口，它定义了被拦截之后和未被拦截时的执行流程。
  * @author xiweng.yy
  */
 public interface Interceptable {
-    
+
     /**
+     * 若没有拦截器拦截此对象，此方法会被调用
      * If no {@link NacosNamingInterceptor} intercept this object, this method will be called to execute.
      */
     void passIntercept();
-    
+
     /**
+     * 若此对象被拦截器拦截，此方法会被调用
      * If one {@link NacosNamingInterceptor} intercept this object, this method will be called.
      */
     void afterIntercept();

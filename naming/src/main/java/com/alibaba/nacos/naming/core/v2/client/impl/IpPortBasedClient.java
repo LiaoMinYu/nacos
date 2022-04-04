@@ -40,70 +40,72 @@ import java.util.List;
  * @author xiweng.yy
  */
 public class IpPortBasedClient extends AbstractClient {
-    
+
     public static final String ID_DELIMITER = "#";
-    
+
     private final String clientId;
-    
+
     private final boolean ephemeral;
-    
+
     private final String responsibleId;
-    
+
     private ClientBeatCheckTaskV2 beatCheckTask;
-    
+
     private HealthCheckTaskV2 healthCheckTaskV2;
-    
+
     public IpPortBasedClient(String clientId, boolean ephemeral) {
         this.ephemeral = ephemeral;
         this.clientId = clientId;
         this.responsibleId = getResponsibleTagFromId();
         if (ephemeral) {
+            // 创建健康检查任务
             beatCheckTask = new ClientBeatCheckTaskV2(this);
+            // 交由执行器调度
             HealthCheckReactor.scheduleCheck(beatCheckTask);
         } else {
             healthCheckTaskV2 = new HealthCheckTaskV2(this);
             HealthCheckReactor.scheduleCheck(healthCheckTaskV2);
         }
     }
-    
+
     private String getResponsibleTagFromId() {
         int index = clientId.indexOf(IpPortBasedClient.ID_DELIMITER);
         return clientId.substring(0, index);
     }
-    
+
     public static String getClientId(String address, boolean ephemeral) {
         return address + ID_DELIMITER + ephemeral;
     }
-    
+
     @Override
     public String getClientId() {
         return clientId;
     }
-    
+
     @Override
     public boolean isEphemeral() {
         return ephemeral;
     }
-    
+
     public String getResponsibleId() {
         return responsibleId;
     }
-    
+
     @Override
     public boolean addServiceInstance(Service service, InstancePublishInfo instancePublishInfo) {
         return super.addServiceInstance(service, parseToHealthCheckInstance(instancePublishInfo));
     }
-    
+
     @Override
     public boolean isExpire(long currentTime) {
         return isEphemeral() && getAllPublishedService().isEmpty()
                 && currentTime - getLastUpdatedTime() > Constants.DEFAULT_IP_DELETE_TIMEOUT;
     }
-    
+
     public Collection<InstancePublishInfo> getAllInstancePublishInfo() {
         return publishers.values();
     }
-    
+
     @Override
     public void release() {
         super.release();
@@ -113,7 +115,7 @@ public class IpPortBasedClient extends AbstractClient {
             healthCheckTaskV2.setCancelled(true);
         }
     }
-    
+
     private HealthCheckInstancePublishInfo parseToHealthCheckInstance(InstancePublishInfo instancePublishInfo) {
         if (instancePublishInfo instanceof HealthCheckInstancePublishInfo) {
             return (HealthCheckInstancePublishInfo) instancePublishInfo;
@@ -129,7 +131,7 @@ public class IpPortBasedClient extends AbstractClient {
         }
         return result;
     }
-    
+
     /**
      * Load {@code ClientSyncData} and update current client.
      *

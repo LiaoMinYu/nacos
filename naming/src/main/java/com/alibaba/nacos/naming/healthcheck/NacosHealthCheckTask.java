@@ -21,17 +21,20 @@ import com.alibaba.nacos.naming.interceptor.Interceptable;
 /**
  * Nacos health check task.
  *
+ * 用于健康检查的Task，定义了健康检查的基本方法。
+ * 继承Interceptable说明其可以被拦截器处理。
+ * 继承Runnable说明其是一个线程，可被线程执行器调度。
  * @author xiweng.yy
  */
 public interface NacosHealthCheckTask extends Interceptable, Runnable {
-    
+
     /**
      * Get task id.
      *
      * @return task id.
      */
     String getTaskId();
-    
+
     /**
      * Do health check.
      */

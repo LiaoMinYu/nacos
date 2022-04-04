@@ -22,20 +22,20 @@ import com.alibaba.nacos.naming.misc.Loggers;
 
 /**
  * Health check task intercept wrapper.
- *
+ * 健康检查任务拦截包装器。
  * @author xiweng.yy
  */
 public class HealthCheckTaskInterceptWrapper implements Runnable {
-    
+
     private final NacosHealthCheckTask task;
-    
+
     private final NacosNamingInterceptorChain<NacosHealthCheckTask> interceptorChain;
-    
+
     public HealthCheckTaskInterceptWrapper(NacosHealthCheckTask task) {
         this.task = task;
         this.interceptorChain = HealthCheckInterceptorChain.getInstance();
     }
-    
+
     @Override
     public void run() {
         try {

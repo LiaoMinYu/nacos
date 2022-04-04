@@ -36,25 +36,48 @@ import java.util.Optional;
 
 /**
  * Instance beat checker for unhealthy instances.
- *
+ * 用于检查实例是否健康，若不健康则更新状态并发布事件。
  * <p>Mark these instances healthy status {@code false} if beat time out.
  *
  * @author xiweng.yy
  */
 public class UnhealthyInstanceChecker implements InstanceBeatChecker {
-    
+
+    /**
+     * 执行检查工作
+     * @param client   client
+     * @param service  service of instance
+     * @param instance instance publish info
+     */
     @Override
     public void doCheck(Client client, Service service, HealthCheckInstancePublishInfo instance) {
+        // 若实例传递进来时是健康的，但经过计算超时的时候是不健康的，则需要更改状态
         if (instance.isHealthy() && isUnhealthy(service, instance)) {
             changeHealthyStatus(client, service, instance);
         }
     }
-    
+
+    /**
+     * 根据实例的上一次更新时间判断是否超时
+     *
+     * @author LMY
+     * @date 2022/3/30 11:21 下午
+     * @param service
+     * @param instance
+     * @return boolean
+    */
     private boolean isUnhealthy(Service service, HealthCheckInstancePublishInfo instance) {
         long beatTimeout = getTimeout(service, instance);
         return System.currentTimeMillis() - instance.getLastHeartBeatTime() > beatTimeout;
     }
-    
+    /**
+     * 获取超时时长
+     * @author LMY
+     * @date 2022/3/30 11:22 下午
+     * @param service
+     * @param instance
+     * @return long
+    */
     private long getTimeout(Service service, InstancePublishInfo instance) {
         Optional<Object> timeout = getTimeoutFromMetadata(service, instance);
         if (!timeout.isPresent()) {
@@ -62,19 +85,38 @@ public class UnhealthyInstanceChecker implements InstanceBeatChecker {
         }
         return timeout.map(ConvertUtils::toLong).orElse(Constants.DEFAULT_HEART_BEAT_TIMEOUT);
     }
-    
+
+    /**
+     * 从元数据中获取超时时长
+     * @author LMY
+     * @date 2022/3/30 11:22 下午
+     * @param service
+     * @param instance
+     * @return java.util.Optional<java.lang.Object>
+    */
     private Optional<Object> getTimeoutFromMetadata(Service service, InstancePublishInfo instance) {
         Optional<InstanceMetadata> instanceMetadata = ApplicationUtils.getBean(NamingMetadataManager.class)
                 .getInstanceMetadata(service, instance.getMetadataId());
         return instanceMetadata.map(metadata -> metadata.getExtendData().get(PreservedMetadataKeys.HEART_BEAT_TIMEOUT));
     }
-    
+
+    /**
+     * 更新健康状态
+     * @author LMY
+     * @date 2022/3/30 11:22 下午
+     * @param client
+     * @param service
+     * @param instance
+     * @return void
+    */
     private void changeHealthyStatus(Client client, Service service, HealthCheckInstancePublishInfo instance) {
+        // 设置实例为不健康
         instance.setHealthy(false);
         Loggers.EVT_LOG
                 .info("{POS} {IP-DISABLED} valid: {}:{}@{}@{}, region: {}, msg: client last beat: {}", instance.getIp(),
                         instance.getPort(), instance.getCluster(), service.getName(), UtilsAndCommons.LOCALHOST_SITE,
                         instance.getLastHeartBeatTime());
+        // 发布服务变更和Client变更事件
         NotifyCenter.publishEvent(new ServiceEvent.ServiceChangedEvent(service));
         NotifyCenter.publishEvent(new ClientEvent.ClientChangedEvent(client));
     }

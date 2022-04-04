@@ -41,61 +41,91 @@ import java.util.Optional;
  * @author nacos
  */
 public class HealthCheckTaskV2 extends AbstractExecuteTask implements NacosHealthCheckTask {
-    
+
+    /**
+     * 一个客户端对象（此客户端代表提供服务用于被应用访问的客户端）
+     * 从这里可以看出，启动一个健康检查任务是以客户端为维度的
+     */
     private final IpPortBasedClient client;
-    
+
     private final String taskId;
-    
+
     private final SwitchDomain switchDomain;
-    
+
     private final NamingMetadataManager metadataManager;
-    
+
     private long checkRtNormalized = -1;
-    
+    /**
+     * 检查最佳响应时间
+     */
     private long checkRtBest = -1;
-    
+    /**
+     * 检查最差响应时间
+     */
     private long checkRtWorst = -1;
-    
+    /**
+     * 检查上次响应时间
+     */
     private long checkRtLast = -1;
-    
+    /**
+     * 检查上上次响应时间
+     */
     private long checkRtLastLast = -1;
-    
+    /**
+     * 开始时间
+     */
     private long startTime;
-    
+    /**
+     * 任务是否取消
+     */
     private volatile boolean cancelled = false;
-    
+
     public HealthCheckTaskV2(IpPortBasedClient client) {
         this.client = client;
         this.taskId = client.getResponsibleId();
         this.switchDomain = ApplicationUtils.getBean(SwitchDomain.class);
         this.metadataManager = ApplicationUtils.getBean(NamingMetadataManager.class);
+        // 初始化响应时间检查
         initCheckRT();
     }
-    
+    /**
+     * 初始化响应时间值
+     */
     private void initCheckRT() {
         // first check time delay
+        // 2000 + (在5000以内的随机数)
         checkRtNormalized =
                 2000 + RandomUtils.nextInt(0, RandomUtils.nextInt(0, switchDomain.getTcpHealthParams().getMax()));
+        // 最佳响应时间
         checkRtBest = Long.MAX_VALUE;
+        // 最差响应时间为0
         checkRtWorst = 0L;
     }
-    
+
     public IpPortBasedClient getClient() {
         return client;
     }
-    
+
     @Override
     public String getTaskId() {
         return taskId;
     }
-    
+
+    /**
+     * 开始执行健康检查任务
+     */
     @Override
     public void doHealthCheck() {
         try {
+            // 获取当前传入的Client所发布的所有Service
             for (Service each : client.getAllPublishedService()) {
+                // 只有当Service开启了健康检查才执行
                 if (switchDomain.isHealthCheckEnabled(each.getGroupedServiceName())) {
+                    // 获取Service对应的InstancePublishInfo
                     InstancePublishInfo instancePublishInfo = client.getInstancePublishInfo(each);
+                    // 获取集群元数据
                     ClusterMetadata metadata = getClusterMetadata(each, instancePublishInfo);
+                    // 使用Processor代理对象对任务进行处理
                     ApplicationUtils.getBean(HealthCheckProcessorV2Delegate.class).process(this, each, metadata);
                     if (Loggers.EVT_LOG.isDebugEnabled()) {
                         Loggers.EVT_LOG.debug("[HEALTH-CHECK] schedule health check task: {}", client.getClientId());
@@ -105,6 +135,7 @@ public class HealthCheckTaskV2 extends AbstractExecuteTask implements NacosHealt
         } catch (Throwable e) {
             Loggers.SRV_LOG.error("[HEALTH-CHECK] error while process health check for {}", client.getClientId(), e);
         } finally {
+            // 若任务执行状态为已取消，则再次启动
             if (!cancelled) {
                 HealthCheckReactor.scheduleCheck(this);
                 // worst == 0 means never checked
@@ -124,24 +155,35 @@ public class HealthCheckTaskV2 extends AbstractExecuteTask implements NacosHealt
             }
         }
     }
-    
+
     @Override
     public void passIntercept() {
+        // 拦截通过之后执行健康检查
         doHealthCheck();
     }
-    
+
     @Override
     public void afterIntercept() {
+        // 拦截器执行完毕之后，若当前任务终止了，则再次进行检查，由此可见其是循环执行的，循环是依赖拦截器的调用逻辑来实现。
         if (!cancelled) {
             HealthCheckReactor.scheduleCheck(this);
         }
     }
-    
+
     @Override
     public void run() {
+        // 调用健康检查
         doHealthCheck();
     }
-    
+
+    /**
+     * 获取集群元数据
+     * @author LMY
+     * @date 2022/3/30 10:39 下午
+     * @param service 服务信息
+     * @param instancePublishInfo  服务对应的ip等信息
+     * @return com.alibaba.nacos.naming.core.v2.metadata.ClusterMetadata
+    */
     private ClusterMetadata getClusterMetadata(Service service, InstancePublishInfo instancePublishInfo) {
         Optional<ServiceMetadata> serviceMetadata = metadataManager.getServiceMetadata(service);
         if (!serviceMetadata.isPresent()) {
@@ -151,59 +193,59 @@ public class HealthCheckTaskV2 extends AbstractExecuteTask implements NacosHealt
         ClusterMetadata result = serviceMetadata.get().getClusters().get(cluster);
         return null == result ? new ClusterMetadata() : result;
     }
-    
+
     public long getCheckRtNormalized() {
         return checkRtNormalized;
     }
-    
+
     public long getCheckRtBest() {
         return checkRtBest;
     }
-    
+
     public long getCheckRtWorst() {
         return checkRtWorst;
     }
-    
+
     public void setCheckRtWorst(long checkRtWorst) {
         this.checkRtWorst = checkRtWorst;
     }
-    
+
     public void setCheckRtBest(long checkRtBest) {
         this.checkRtBest = checkRtBest;
     }
-    
+
     public void setCheckRtNormalized(long checkRtNormalized) {
         this.checkRtNormalized = checkRtNormalized;
     }
-    
+
     public boolean isCancelled() {
         return cancelled;
     }
-    
+
     public void setCancelled(boolean cancelled) {
         this.cancelled = cancelled;
     }
-    
+
     public long getStartTime() {
         return startTime;
     }
-    
+
     public void setStartTime(long startTime) {
         this.startTime = startTime;
     }
-    
+
     public long getCheckRtLast() {
         return checkRtLast;
     }
-    
+
     public void setCheckRtLast(long checkRtLast) {
         this.checkRtLast = checkRtLast;
     }
-    
+
     public long getCheckRtLastLast() {
         return checkRtLastLast;
     }
-    
+
     public void setCheckRtLastLast(long checkRtLastLast) {
         this.checkRtLastLast = checkRtLastLast;
     }

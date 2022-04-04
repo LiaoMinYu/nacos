@@ -75,81 +75,82 @@ import static com.alibaba.nacos.naming.misc.UtilsAndCommons.UPDATE_INSTANCE_META
 
 /**
  * Core manager storing all services in Nacos.
+ * 核心管理器将所有服务存储在Nacos中。
  *
  * @author nkorange
  */
 @Component
 public class ServiceManager implements RecordListener<Service> {
-    
+
     /**
      * Map(namespace, Map(group::serviceName, Service)).
      */
     private final Map<String, Map<String, Service>> serviceMap = new ConcurrentHashMap<>();
-    
+
     private final LinkedBlockingDeque<ServiceKey> toBeUpdatedServicesQueue = new LinkedBlockingDeque<>(1024 * 1024);
-    
+
     private final Synchronizer synchronizer = new ServiceStatusSynchronizer();
-    
+
     private final Lock lock = new ReentrantLock();
-    
+
     @Resource(name = "consistencyDelegate")
     private ConsistencyService consistencyService;
-    
+
     private final SwitchDomain switchDomain;
-    
+
     private final DistroMapper distroMapper;
-    
+
     private final ServerMemberManager memberManager;
-    
+
     private final UdpPushService pushService;
-    
+
     private final RaftPeerSet raftPeerSet;
-    
+
     private final Object putServiceLock = new Object();
-    
+
     @Value("${nacos.naming.empty-service.auto-clean:false}")
     private boolean emptyServiceAutoClean;
-    
+
     @Value("${nacos.naming.empty-service.clean.initial-delay-ms:60000}")
     private int cleanEmptyServiceDelay;
-    
+
     @Value("${nacos.naming.empty-service.clean.period-time-ms:20000}")
     private int cleanEmptyServicePeriod;
-    
+
     public ServiceManager(SwitchDomain switchDomain, DistroMapper distroMapper, ServerMemberManager memberManager,
-            UdpPushService pushService, RaftPeerSet raftPeerSet) {
+                          UdpPushService pushService, RaftPeerSet raftPeerSet) {
         this.switchDomain = switchDomain;
         this.distroMapper = distroMapper;
         this.memberManager = memberManager;
         this.pushService = pushService;
         this.raftPeerSet = raftPeerSet;
     }
-    
+
     /**
      * Init service maneger.
      */
     @PostConstruct
     public void init() {
         GlobalExecutor.scheduleServiceReporter(new ServiceReporter(), 60000, TimeUnit.MILLISECONDS);
-        
+
         GlobalExecutor.submitServiceUpdateManager(new UpdatedServiceProcessor());
-        
+
         if (emptyServiceAutoClean) {
-            
+
             Loggers.SRV_LOG.info("open empty service auto clean job, initialDelay : {} ms, period : {} ms",
-                    cleanEmptyServiceDelay, cleanEmptyServicePeriod);
-            
+                cleanEmptyServiceDelay, cleanEmptyServicePeriod);
+
             // delay 60s, period 20s;
-            
+
             // This task is not recommended to be performed frequently in order to avoid
             // the possibility that the service cache information may just be deleted
             // and then created due to the heartbeat mechanism
-            
+
             GlobalExecutor
-                    .scheduleServiceAutoClean(new EmptyServiceAutoCleaner(this, distroMapper), cleanEmptyServiceDelay,
-                            cleanEmptyServicePeriod);
+                .scheduleServiceAutoClean(new EmptyServiceAutoCleaner(this, distroMapper), cleanEmptyServiceDelay,
+                    cleanEmptyServicePeriod);
         }
-        
+
         try {
             Loggers.SRV_LOG.info("listen for service meta change");
             consistencyService.listen(KeyBuilder.SERVICE_META_KEY_PREFIX, this);
@@ -157,11 +158,11 @@ public class ServiceManager implements RecordListener<Service> {
             Loggers.SRV_LOG.error("listen for service meta change failed!");
         }
     }
-    
+
     public Map<String, Service> chooseServiceMap(String namespaceId) {
         return serviceMap.get(namespaceId);
     }
-    
+
     /**
      * Add a service into queue to update.
      *
@@ -174,7 +175,7 @@ public class ServiceManager implements RecordListener<Service> {
         lock.lock();
         try {
             toBeUpdatedServicesQueue
-                    .offer(new ServiceKey(namespaceId, serviceName, serverIP, checksum), 5, TimeUnit.MILLISECONDS);
+                .offer(new ServiceKey(namespaceId, serviceName, serverIP, checksum), 5, TimeUnit.MILLISECONDS);
         } catch (Exception e) {
             toBeUpdatedServicesQueue.poll();
             toBeUpdatedServicesQueue.add(new ServiceKey(namespaceId, serviceName, serverIP, checksum));
@@ -183,17 +184,17 @@ public class ServiceManager implements RecordListener<Service> {
             lock.unlock();
         }
     }
-    
+
     @Override
     public boolean interests(String key) {
         return KeyBuilder.matchServiceMetaKey(key) && !KeyBuilder.matchSwitchKey(key);
     }
-    
+
     @Override
     public boolean matchUnlistenKey(String key) {
         return KeyBuilder.matchServiceMetaKey(key) && !KeyBuilder.matchSwitchKey(key);
     }
-    
+
     @Override
     public void onChange(String key, Service service) throws Exception {
         try {
@@ -201,24 +202,24 @@ public class ServiceManager implements RecordListener<Service> {
                 Loggers.SRV_LOG.warn("received empty push from raft, key: {}", key);
                 return;
             }
-            
+
             if (StringUtils.isBlank(service.getNamespaceId())) {
                 service.setNamespaceId(Constants.DEFAULT_NAMESPACE_ID);
             }
-            
+
             Loggers.RAFT.info("[RAFT-NOTIFIER] datum is changed, key: {}, value: {}", key, service);
-            
+
             Service oldDom = getService(service.getNamespaceId(), service.getName());
-            
+
             if (oldDom != null) {
                 oldDom.update(service);
                 // re-listen to handle the situation when the underlying listener is removed:
                 consistencyService
-                        .listen(KeyBuilder.buildInstanceListKey(service.getNamespaceId(), service.getName(), true),
-                                oldDom);
+                    .listen(KeyBuilder.buildInstanceListKey(service.getNamespaceId(), service.getName(), true),
+                        oldDom);
                 consistencyService
-                        .listen(KeyBuilder.buildInstanceListKey(service.getNamespaceId(), service.getName(), false),
-                                oldDom);
+                    .listen(KeyBuilder.buildInstanceListKey(service.getNamespaceId(), service.getName(), false),
+                        oldDom);
             } else {
                 putServiceAndInit(service);
             }
@@ -226,38 +227,38 @@ public class ServiceManager implements RecordListener<Service> {
             Loggers.SRV_LOG.error("[NACOS-SERVICE] error while processing service update", e);
         }
     }
-    
+
     @Override
     public void onDelete(String key) throws Exception {
         String namespace = KeyBuilder.getNamespace(key);
         String name = KeyBuilder.getServiceName(key);
         Service service = chooseServiceMap(namespace).get(name);
         Loggers.RAFT.info("[RAFT-NOTIFIER] datum is deleted, key: {}", key);
-        
+
         if (service != null) {
             service.destroy();
             String ephemeralInstanceListKey = KeyBuilder.buildInstanceListKey(namespace, name, true);
             String persistInstanceListKey = KeyBuilder.buildInstanceListKey(namespace, name, false);
             consistencyService.remove(ephemeralInstanceListKey);
             consistencyService.remove(persistInstanceListKey);
-            
+
             // remove listeners of key to avoid mem leak
             consistencyService.unListen(ephemeralInstanceListKey, service);
             consistencyService.unListen(persistInstanceListKey, service);
             consistencyService.unListen(KeyBuilder.buildServiceMetaKey(namespace, name), service);
             Loggers.SRV_LOG.info("[DEAD-SERVICE] {}", service.toJson());
         }
-        
+
         chooseServiceMap(namespace).remove(name);
     }
-    
+
     private class UpdatedServiceProcessor implements Runnable {
-        
+
         //get changed service from other server asynchronously
         @Override
         public void run() {
             ServiceKey serviceKey = null;
-            
+
             try {
                 while (true) {
                     try {
@@ -265,7 +266,7 @@ public class ServiceManager implements RecordListener<Service> {
                     } catch (Exception e) {
                         Loggers.EVT_LOG.error("[UPDATE-DOMAIN] Exception while taking item from LinkedBlockingDeque.");
                     }
-                    
+
                     if (serviceKey == null) {
                         continue;
                     }
@@ -276,37 +277,37 @@ public class ServiceManager implements RecordListener<Service> {
             }
         }
     }
-    
+
     private class ServiceUpdater implements Runnable {
-        
+
         String namespaceId;
-        
+
         String serviceName;
-        
+
         String serverIP;
-        
+
         public ServiceUpdater(ServiceKey serviceKey) {
             this.namespaceId = serviceKey.getNamespaceId();
             this.serviceName = serviceKey.getServiceName();
             this.serverIP = serviceKey.getServerIP();
         }
-        
+
         @Override
         public void run() {
             try {
                 updatedHealthStatus(namespaceId, serviceName, serverIP);
             } catch (Exception e) {
                 Loggers.SRV_LOG
-                        .warn("[DOMAIN-UPDATER] Exception while update service: {} from {}, error: {}", serviceName,
-                                serverIP, e);
+                    .warn("[DOMAIN-UPDATER] Exception while update service: {} from {}, error: {}", serviceName,
+                        serverIP, e);
             }
         }
     }
-    
+
     public RaftPeer getMySelfClusterState() {
         return raftPeerSet.local();
     }
-    
+
     /**
      * Update health status of instance in service.
      *
@@ -317,37 +318,37 @@ public class ServiceManager implements RecordListener<Service> {
     public void updatedHealthStatus(String namespaceId, String serviceName, String serverIP) {
         Message msg = synchronizer.get(serverIP, UtilsAndCommons.assembleFullServiceName(namespaceId, serviceName));
         JsonNode serviceJson = JacksonUtils.toObj(msg.getData());
-        
+
         ArrayNode ipList = (ArrayNode) serviceJson.get("ips");
         Map<String, String> ipsMap = new HashMap<>(ipList.size());
         for (int i = 0; i < ipList.size(); i++) {
-            
+
             String ip = ipList.get(i).asText();
             String[] strings = ip.split("_");
             ipsMap.put(strings[0], strings[1]);
         }
-        
+
         Service service = getService(namespaceId, serviceName);
-        
+
         if (service == null) {
             return;
         }
-        
+
         boolean changed = false;
-        
+
         List<Instance> instances = service.allIPs();
         for (Instance instance : instances) {
-            
+
             boolean valid = Boolean.parseBoolean(ipsMap.get(instance.toIpAddr()));
             if (valid != instance.isHealthy()) {
                 changed = true;
                 instance.setHealthy(valid);
                 Loggers.EVT_LOG.info("{} {SYNC} IP-{} : {}:{}@{}", serviceName,
-                        (instance.isHealthy() ? "ENABLED" : "DISABLED"), instance.getIp(), instance.getPort(),
-                        instance.getClusterName());
+                    (instance.isHealthy() ? "ENABLED" : "DISABLED"), instance.getIp(), instance.getPort(),
+                    instance.getClusterName());
             }
         }
-        
+
         if (changed) {
             pushService.serviceChanged(service);
             if (Loggers.EVT_LOG.isDebugEnabled()) {
@@ -357,37 +358,37 @@ public class ServiceManager implements RecordListener<Service> {
                     stringBuilder.append(instance.toIpAddr()).append("_").append(instance.isHealthy()).append(",");
                 }
                 Loggers.EVT_LOG
-                        .debug("[HEALTH-STATUS-UPDATED] namespace: {}, service: {}, ips: {}", service.getNamespaceId(),
-                                service.getName(), stringBuilder.toString());
+                    .debug("[HEALTH-STATUS-UPDATED] namespace: {}, service: {}, ips: {}", service.getNamespaceId(),
+                        service.getName(), stringBuilder.toString());
             }
         }
-        
+
     }
-    
+
     public Set<String> getAllServiceNames(String namespaceId) {
         return serviceMap.get(namespaceId).keySet();
     }
-    
+
     public Map<String, Set<String>> getAllServiceNames() {
-        
+
         Map<String, Set<String>> namesMap = new HashMap<>(16);
         for (String namespaceId : serviceMap.keySet()) {
             namesMap.put(namespaceId, serviceMap.get(namespaceId).keySet());
         }
         return namesMap;
     }
-    
+
     public Set<String> getAllNamespaces() {
         return serviceMap.keySet();
     }
-    
+
     public List<String> getAllServiceNameList(String namespaceId) {
         if (chooseServiceMap(namespaceId) == null) {
             return new ArrayList<>();
         }
         return new ArrayList<>(chooseServiceMap(namespaceId).keySet());
     }
-    
+
     public Map<String, Set<Service>> getResponsibleServices() {
         Map<String, Set<Service>> result = new HashMap<>(16);
         for (String namespaceId : serviceMap.keySet()) {
@@ -401,7 +402,7 @@ public class ServiceManager implements RecordListener<Service> {
         }
         return result;
     }
-    
+
     public int getResponsibleServiceCount() {
         int serviceCount = 0;
         for (String namespaceId : serviceMap.keySet()) {
@@ -413,7 +414,7 @@ public class ServiceManager implements RecordListener<Service> {
         }
         return serviceCount;
     }
-    
+
     public int getResponsibleInstanceCount() {
         Map<String, Set<Service>> responsibleServices = getResponsibleServices();
         int count = 0;
@@ -422,10 +423,10 @@ public class ServiceManager implements RecordListener<Service> {
                 count += service.allIPs().size();
             }
         }
-        
+
         return count;
     }
-    
+
     /**
      * Fast remove service.
      *
@@ -436,26 +437,27 @@ public class ServiceManager implements RecordListener<Service> {
      * @throws NacosException exception
      */
     public void easyRemoveService(String namespaceId, String serviceName) throws NacosException {
-        
+
         Service service = getService(namespaceId, serviceName);
         if (service == null) {
             throw new NacosException(NacosException.INVALID_PARAM,
-                    "specified service not exist, serviceName : " + serviceName);
+                "specified service not exist, serviceName : " + serviceName);
         }
-        
+
         consistencyService.remove(KeyBuilder.buildServiceMetaKey(namespaceId, serviceName));
     }
-    
+
     public void addOrReplaceService(Service service) throws NacosException {
         consistencyService.put(KeyBuilder.buildServiceMetaKey(service.getNamespaceId(), service.getName()), service);
     }
-    
+
     public void createEmptyService(String namespaceId, String serviceName, boolean local) throws NacosException {
         createServiceIfAbsent(namespaceId, serviceName, local, null);
     }
-    
+
     /**
      * Create service if not exist.
+     * 没有就创建实例
      *
      * @param namespaceId namespace
      * @param serviceName service name
@@ -464,10 +466,10 @@ public class ServiceManager implements RecordListener<Service> {
      * @throws NacosException nacos exception
      */
     public void createServiceIfAbsent(String namespaceId, String serviceName, boolean local, Cluster cluster)
-            throws NacosException {
+        throws NacosException {
         Service service = getService(namespaceId, serviceName);
         if (service == null) {
-            
+
             Loggers.SRV_LOG.info("creating empty service {}:{}", namespaceId, serviceName);
             service = new Service();
             service.setName(serviceName);
@@ -481,17 +483,17 @@ public class ServiceManager implements RecordListener<Service> {
                 service.getClusterMap().put(cluster.getName(), cluster);
             }
             service.validate();
-            
+            //存放、初始化实例
             putServiceAndInit(service);
             if (!local) {
                 addOrReplaceService(service);
             }
         }
     }
-    
+
     /**
      * Register an instance to a service in AP mode.
-     *
+     * 在AP模式下向服务注册实例。
      * <p>This method creates service or cluster silently if they don't exist.
      *
      * @param namespaceId id of namespace
@@ -500,19 +502,20 @@ public class ServiceManager implements RecordListener<Service> {
      * @throws Exception any error occurred in the process
      */
     public void registerInstance(String namespaceId, String serviceName, Instance instance) throws NacosException {
-        
+
+        //创建空服务 serviceName对应spring.application.name
         createEmptyService(namespaceId, serviceName, instance.isEphemeral());
-        
+
         Service service = getService(namespaceId, serviceName);
-        
+
         if (service == null) {
             throw new NacosException(NacosException.INVALID_PARAM,
-                    "service not found, namespace: " + namespaceId + ", service: " + serviceName);
+                "service not found, namespace: " + namespaceId + ", service: " + serviceName);
         }
-        
+
         addInstance(namespaceId, serviceName, instance.isEphemeral(), instance);
     }
-    
+
     /**
      * Update instance to service.
      *
@@ -522,21 +525,21 @@ public class ServiceManager implements RecordListener<Service> {
      * @throws NacosException nacos exception
      */
     public void updateInstance(String namespaceId, String serviceName, Instance instance) throws NacosException {
-        
+
         Service service = getService(namespaceId, serviceName);
-        
+
         if (service == null) {
             throw new NacosException(NacosException.INVALID_PARAM,
-                    "service not found, namespace: " + namespaceId + ", service: " + serviceName);
+                "service not found, namespace: " + namespaceId + ", service: " + serviceName);
         }
-        
+
         if (!service.allIPs().contains(instance)) {
             throw new NacosException(NacosException.INVALID_PARAM, "instance not exist: " + instance);
         }
-        
+
         addInstance(namespaceId, serviceName, instance.isEphemeral(), instance);
     }
-    
+
     /**
      * Update instance's metadata.
      *
@@ -549,21 +552,21 @@ public class ServiceManager implements RecordListener<Service> {
      * @throws NacosException nacos exception
      */
     public List<Instance> updateMetadata(String namespaceId, String serviceName, boolean isEphemeral, String action,
-            boolean all, List<Instance> ips, Map<String, String> metadata) throws NacosException {
-        
+                                         boolean all, List<Instance> ips, Map<String, String> metadata) throws NacosException {
+
         Service service = getService(namespaceId, serviceName);
-        
+
         if (service == null) {
             throw new NacosException(NacosException.INVALID_PARAM,
-                    "service not found, namespace: " + namespaceId + ", service: " + serviceName);
+                "service not found, namespace: " + namespaceId + ", service: " + serviceName);
         }
-        
+
         List<Instance> locatedInstance = getLocatedInstance(namespaceId, serviceName, isEphemeral, all, ips);
-        
+
         if (CollectionUtils.isEmpty(locatedInstance)) {
             throw new NacosException(NacosException.INVALID_PARAM, "not locate instances, input instances: " + ips);
         }
-        
+
         if (UPDATE_INSTANCE_METADATA_ACTION_UPDATE.equals(action)) {
             locatedInstance.forEach(ele -> ele.getMetadata().putAll(metadata));
         } else if (UPDATE_INSTANCE_METADATA_ACTION_REMOVE.equals(action)) {
@@ -574,12 +577,12 @@ public class ServiceManager implements RecordListener<Service> {
         }
         Instance[] instances = new Instance[locatedInstance.size()];
         locatedInstance.toArray(instances);
-        
+
         addInstance(namespaceId, serviceName, isEphemeral, instances);
-        
+
         return locatedInstance;
     }
-    
+
     /**
      * Locate consistency's datum by all or instances provided.
      *
@@ -592,17 +595,17 @@ public class ServiceManager implements RecordListener<Service> {
      * @throws NacosException nacos exception
      */
     public List<Instance> getLocatedInstance(String namespaceId, String serviceName, boolean isEphemeral, boolean all,
-            List<Instance> waitLocateInstance) throws NacosException {
+                                             List<Instance> waitLocateInstance) throws NacosException {
         List<Instance> locatedInstance;
-        
+
         //need the newest data from consistencyService
         Datum datum = consistencyService.get(KeyBuilder.buildInstanceListKey(namespaceId, serviceName, isEphemeral));
         if (datum == null) {
             throw new NacosException(NacosException.NOT_FOUND,
-                    "instances from consistencyService not exist, namespace: " + namespaceId + ", service: "
-                            + serviceName + ", ephemeral: " + isEphemeral);
+                "instances from consistencyService not exist, namespace: " + namespaceId + ", service: "
+                    + serviceName + ", ephemeral: " + isEphemeral);
         }
-        
+
         if (all) {
             locatedInstance = ((Instances) datum.value).getInstanceList();
         } else {
@@ -615,15 +618,15 @@ public class ServiceManager implements RecordListener<Service> {
                 locatedInstance.add(located);
             }
         }
-        
+
         return locatedInstance;
     }
-    
+
     private Instance locateInstance(List<Instance> sources, Instance target) {
         if (CollectionUtils.isEmpty(sources)) {
             return null;
         }
-        
+
         for (Instance element : sources) {
             //also need clusterName equals, the same instance maybe exist in two cluster.
             if (Objects.equals(element, target) && Objects.equals(element.getClusterName(), target.getClusterName())) {
@@ -632,7 +635,7 @@ public class ServiceManager implements RecordListener<Service> {
         }
         return null;
     }
-    
+
     /**
      * Add instance to service.
      *
@@ -643,22 +646,22 @@ public class ServiceManager implements RecordListener<Service> {
      * @throws NacosException nacos exception
      */
     public void addInstance(String namespaceId, String serviceName, boolean ephemeral, Instance... ips)
-            throws NacosException {
-        
+        throws NacosException {
+
         String key = KeyBuilder.buildInstanceListKey(namespaceId, serviceName, ephemeral);
-        
+
         Service service = getService(namespaceId, serviceName);
-        
+
         synchronized (service) {
             List<Instance> instanceList = addIpAddresses(service, ephemeral, ips);
-            
+
             Instances instances = new Instances();
             instances.setInstanceList(instanceList);
-            
+
             consistencyService.put(key, instances);
         }
     }
-    
+
     /**
      * Remove instance from service.
      *
@@ -669,50 +672,50 @@ public class ServiceManager implements RecordListener<Service> {
      * @throws NacosException nacos exception
      */
     public void removeInstance(String namespaceId, String serviceName, boolean ephemeral, Instance... ips)
-            throws NacosException {
+        throws NacosException {
         Service service = getService(namespaceId, serviceName);
-        
+
         synchronized (service) {
             removeInstance(namespaceId, serviceName, ephemeral, service, ips);
         }
     }
-    
+
     private void removeInstance(String namespaceId, String serviceName, boolean ephemeral, Service service,
-            Instance... ips) throws NacosException {
-        
+                                Instance... ips) throws NacosException {
+
         String key = KeyBuilder.buildInstanceListKey(namespaceId, serviceName, ephemeral);
-        
+
         List<Instance> instanceList = substractIpAddresses(service, ephemeral, ips);
-        
+
         Instances instances = new Instances();
         instances.setInstanceList(instanceList);
-        
+
         consistencyService.put(key, instances);
     }
-    
+
     public Instance getInstance(String namespaceId, String serviceName, String cluster, String ip, int port) {
         Service service = getService(namespaceId, serviceName);
         if (service == null) {
             return null;
         }
-        
+
         List<String> clusters = new ArrayList<>();
         clusters.add(cluster);
-        
+
         List<Instance> ips = service.allIPs(clusters);
         if (ips == null || ips.isEmpty()) {
             return null;
         }
-        
+
         for (Instance instance : ips) {
             if (instance.getIp().equals(ip) && instance.getPort() == port) {
                 return instance;
             }
         }
-        
+
         return null;
     }
-    
+
     /**
      * batch operate kinds of resources.
      *
@@ -721,7 +724,7 @@ public class ServiceManager implements RecordListener<Service> {
      * @param operateFunction some operation defined by kinds of situation.
      */
     public List<Instance> batchOperate(String namespace, InstanceOperationInfo operationInfo,
-            Function<InstanceOperationContext, List<Instance>> operateFunction) {
+                                       Function<InstanceOperationContext, List<Instance>> operateFunction) {
         List<Instance> operatedInstances = new ArrayList<>();
         try {
             String serviceName = operationInfo.getServiceName();
@@ -741,8 +744,8 @@ public class ServiceManager implements RecordListener<Service> {
                         break;
                     default:
                         Loggers.SRV_LOG
-                                .warn("UPDATE-METADATA: services.all value is illegal, it should be ephemeral/persist. ignore the service '"
-                                        + serviceName + "'");
+                            .warn("UPDATE-METADATA: services.all value is illegal, it should be ephemeral/persist. ignore the service '"
+                                + serviceName + "'");
                         break;
                 }
             } else {
@@ -750,22 +753,22 @@ public class ServiceManager implements RecordListener<Service> {
                 if (!CollectionUtils.isEmpty(instances)) {
                     //ephemeral:instances or persist:instances
                     Map<Boolean, List<Instance>> instanceMap = instances.stream()
-                            .collect(Collectors.groupingBy(ele -> ele.isEphemeral()));
-                    
+                        .collect(Collectors.groupingBy(ele -> ele.isEphemeral()));
+
                     for (Map.Entry<Boolean, List<Instance>> entry : instanceMap.entrySet()) {
                         operationContext = new InstanceOperationContext(namespace, serviceName, entry.getKey(), false,
-                                entry.getValue());
+                            entry.getValue());
                         operatedInstances.addAll(operateFunction.apply(operationContext));
                     }
                 }
             }
         } catch (Exception e) {
             Loggers.SRV_LOG.warn("UPDATE-METADATA: update metadata failed, ignore the service '" + operationInfo
-                    .getServiceName() + "'", e);
+                .getServiceName() + "'", e);
         }
         return operatedInstances;
     }
-    
+
     /**
      * Compare and get new instance list.
      *
@@ -777,37 +780,37 @@ public class ServiceManager implements RecordListener<Service> {
      * @throws NacosException nacos exception
      */
     public List<Instance> updateIpAddresses(Service service, String action, boolean ephemeral, Instance... ips)
-            throws NacosException {
-        
+        throws NacosException {
+
         Datum datum = consistencyService
-                .get(KeyBuilder.buildInstanceListKey(service.getNamespaceId(), service.getName(), ephemeral));
-        
+            .get(KeyBuilder.buildInstanceListKey(service.getNamespaceId(), service.getName(), ephemeral));
+
         List<Instance> currentIPs = service.allIPs(ephemeral);
         Map<String, Instance> currentInstances = new HashMap<>(currentIPs.size());
         Set<String> currentInstanceIds = Sets.newHashSet();
-        
+
         for (Instance instance : currentIPs) {
             currentInstances.put(instance.toIpAddr(), instance);
             currentInstanceIds.add(instance.getInstanceId());
         }
-        
+
         Map<String, Instance> instanceMap;
         if (datum != null && null != datum.value) {
             instanceMap = setValid(((Instances) datum.value).getInstanceList(), currentInstances);
         } else {
             instanceMap = new HashMap<>(ips.length);
         }
-        
+
         for (Instance instance : ips) {
             if (!service.getClusterMap().containsKey(instance.getClusterName())) {
                 Cluster cluster = new Cluster(instance.getClusterName(), service);
                 cluster.init();
                 service.getClusterMap().put(instance.getClusterName(), cluster);
                 Loggers.SRV_LOG
-                        .warn("cluster: {} not found, ip: {}, will create new cluster with default configuration.",
-                                instance.getClusterName(), instance.toJson());
+                    .warn("cluster: {} not found, ip: {}, will create new cluster with default configuration.",
+                        instance.getClusterName(), instance.toJson());
             }
-            
+
             if (UtilsAndCommons.UPDATE_INSTANCE_ACTION_REMOVE.equals(action)) {
                 instanceMap.remove(instance.getDatumKey());
             } else {
@@ -819,29 +822,29 @@ public class ServiceManager implements RecordListener<Service> {
                 }
                 instanceMap.put(instance.getDatumKey(), instance);
             }
-            
+
         }
-        
+
         if (instanceMap.size() <= 0 && UtilsAndCommons.UPDATE_INSTANCE_ACTION_ADD.equals(action)) {
             throw new IllegalArgumentException(
-                    "ip list can not be empty, service: " + service.getName() + ", ip list: " + JacksonUtils
-                            .toJson(instanceMap.values()));
+                "ip list can not be empty, service: " + service.getName() + ", ip list: " + JacksonUtils
+                    .toJson(instanceMap.values()));
         }
-        
+
         return new ArrayList<>(instanceMap.values());
     }
-    
+
     private List<Instance> substractIpAddresses(Service service, boolean ephemeral, Instance... ips)
-            throws NacosException {
+        throws NacosException {
         return updateIpAddresses(service, UtilsAndCommons.UPDATE_INSTANCE_ACTION_REMOVE, ephemeral, ips);
     }
-    
+
     private List<Instance> addIpAddresses(Service service, boolean ephemeral, Instance... ips) throws NacosException {
         return updateIpAddresses(service, UtilsAndCommons.UPDATE_INSTANCE_ACTION_ADD, ephemeral, ips);
     }
-    
+
     private Map<String, Instance> setValid(List<Instance> oldInstances, Map<String, Instance> map) {
-        
+
         Map<String, Instance> instanceMap = new HashMap<>(oldInstances.size());
         for (Instance instance : oldInstances) {
             Instance instance1 = map.get(instance.toIpAddr());
@@ -853,20 +856,22 @@ public class ServiceManager implements RecordListener<Service> {
         }
         return instanceMap;
     }
-    
+
     public Service getService(String namespaceId, String serviceName) {
+
         if (serviceMap.get(namespaceId) == null) {
             return null;
         }
         return chooseServiceMap(namespaceId).get(serviceName);
     }
-    
+
     public boolean containService(String namespaceId, String serviceName) {
         return getService(namespaceId, serviceName) != null;
     }
-    
+
     /**
      * Put service into manager.
+     * 是否存在，如果不存在就加锁，紧接着又进行了一次判断，这里进行两次判断就很nice。有点单例模式双重锁
      *
      * @param service service
      */
@@ -879,19 +884,34 @@ public class ServiceManager implements RecordListener<Service> {
             }
         }
         serviceMap.get(service.getNamespaceId()).putIfAbsent(service.getName(), service);
+
+        //这里第一次判断，是为了减少锁等待时间，假如，有很多个线程同时请求进来了，
+        //假如serviceMap是有返回值的，那么，这里还是上锁了，还是需要串行的执行，消耗时间
+        //synchronized里面的判断是，假如有两个线程第一个if判断是空了，走到synchronized了，
+        // 线程A加锁了，线程B等待，线程A put了，线程B就需要判断再判断一下，要不然就重复put了，也消耗时间
+        //这里把外层的put进去了之后，紧接着就获取外层的，在put里面的map
+
     }
-    
+
+    /**
+     * 存放并初始化实例
+     * TODO READ
+     *
+     * @param service 实例对象
+     * @author LMY
+     * @date 2022/3/28 12:15 上午
+     */
     private void putServiceAndInit(Service service) throws NacosException {
         putService(service);
         service = getService(service.getNamespaceId(), service.getName());
         service.init();
         consistencyService
-                .listen(KeyBuilder.buildInstanceListKey(service.getNamespaceId(), service.getName(), true), service);
+            .listen(KeyBuilder.buildInstanceListKey(service.getNamespaceId(), service.getName(), true), service);
         consistencyService
-                .listen(KeyBuilder.buildInstanceListKey(service.getNamespaceId(), service.getName(), false), service);
+            .listen(KeyBuilder.buildInstanceListKey(service.getNamespaceId(), service.getName(), false), service);
         Loggers.SRV_LOG.info("[NEW-SERVICE] {}", service.toJson());
     }
-    
+
     /**
      * Search services.
      *
@@ -908,10 +928,10 @@ public class ServiceManager implements RecordListener<Service> {
                 result.add(service);
             }
         }
-        
+
         return result;
     }
-    
+
     public int getServiceCount() {
         int serviceCount = 0;
         for (String namespaceId : serviceMap.keySet()) {
@@ -919,7 +939,7 @@ public class ServiceManager implements RecordListener<Service> {
         }
         return serviceCount;
     }
-    
+
     public int getInstanceCount() {
         int total = 0;
         for (String namespaceId : serviceMap.keySet()) {
@@ -929,34 +949,34 @@ public class ServiceManager implements RecordListener<Service> {
         }
         return total;
     }
-    
+
     public int getPagedService(String namespaceId, int startPage, int pageSize, String param, String containedInstance,
-            List<Service> serviceList, boolean hasIpCount) {
-        
+                               List<Service> serviceList, boolean hasIpCount) {
+
         List<Service> matchList;
-        
+
         if (chooseServiceMap(namespaceId) == null) {
             return 0;
         }
-        
+
         if (StringUtils.isNotBlank(param)) {
             StringJoiner regex = new StringJoiner(Constants.SERVICE_INFO_SPLITER);
             for (String s : param.split(Constants.SERVICE_INFO_SPLITER, Constants.SERVICE_INFO_SPLIT_COUNT)) {
                 regex.add(StringUtils.isBlank(s) ? Constants.ANY_PATTERN
-                        : Constants.ANY_PATTERN + s + Constants.ANY_PATTERN);
+                    : Constants.ANY_PATTERN + s + Constants.ANY_PATTERN);
             }
             matchList = searchServices(namespaceId, regex.toString());
         } else {
             matchList = new ArrayList<>(chooseServiceMap(namespaceId).values());
         }
-        
+
         if (!CollectionUtils.isEmpty(matchList) && hasIpCount) {
             matchList = matchList.stream().filter(s -> !CollectionUtils.isEmpty(s.allIPs()))
-                    .collect(Collectors.toList());
+                .collect(Collectors.toList());
         }
-        
+
         if (StringUtils.isNotBlank(containedInstance)) {
-            
+
             boolean contained;
             for (int i = 0; i < matchList.size(); i++) {
                 Service service = matchList.get(i);
@@ -965,7 +985,7 @@ public class ServiceManager implements RecordListener<Service> {
                 for (Instance instance : instances) {
                     if (IPUtil.containsPort(containedInstance)) {
                         if (StringUtils.equals(instance.getIp() + IPUtil.IP_PORT_SPLITER + instance.getPort(),
-                                containedInstance)) {
+                            containedInstance)) {
                             contained = true;
                             break;
                         }
@@ -982,27 +1002,27 @@ public class ServiceManager implements RecordListener<Service> {
                 }
             }
         }
-        
+
         if (pageSize >= matchList.size()) {
             serviceList.addAll(matchList);
             return matchList.size();
         }
-        
+
         for (int i = 0; i < matchList.size(); i++) {
             if (i < startPage * pageSize) {
                 continue;
             }
-            
+
             serviceList.add(matchList.get(i));
-            
+
             if (serviceList.size() >= pageSize) {
                 break;
             }
         }
-        
+
         return matchList.size();
     }
-    
+
     /**
      * Shut down service manager v1.x.
      *
@@ -1017,7 +1037,7 @@ public class ServiceManager implements RecordListener<Service> {
             throw new NacosException(NacosException.SERVER_ERROR, "shutdown serviceManager failed", e);
         }
     }
-    
+
     private void destroyAllService(String namespace, Map<String, Service> serviceMap) throws Exception {
         for (Map.Entry<String, Service> entry : serviceMap.entrySet()) {
             Service service = entry.getValue();
@@ -1031,21 +1051,21 @@ public class ServiceManager implements RecordListener<Service> {
             Loggers.SRV_LOG.info("[DEAD-SERVICE] {}", service.toJson());
         }
     }
-    
+
     public static class ServiceChecksum {
-        
+
         public String namespaceId;
-        
+
         public Map<String, String> serviceName2Checksum = new HashMap<String, String>();
-        
+
         public ServiceChecksum() {
             this.namespaceId = Constants.DEFAULT_NAMESPACE_ID;
         }
-        
+
         public ServiceChecksum(String namespaceId) {
             this.namespaceId = namespaceId;
         }
-        
+
         /**
          * Add service checksum.
          *
@@ -1055,56 +1075,56 @@ public class ServiceManager implements RecordListener<Service> {
         public void addItem(String serviceName, String checksum) {
             if (StringUtils.isEmpty(serviceName) || StringUtils.isEmpty(checksum)) {
                 Loggers.SRV_LOG.warn("[DOMAIN-CHECKSUM] serviceName or checksum is empty,serviceName: {}, checksum: {}",
-                        serviceName, checksum);
+                    serviceName, checksum);
                 return;
             }
             serviceName2Checksum.put(serviceName, checksum);
         }
     }
-    
+
     private class ServiceReporter implements Runnable {
-        
+
         @Override
         public void run() {
             try {
-                
+
                 Map<String, Set<String>> allServiceNames = getAllServiceNames();
-                
+
                 if (allServiceNames.size() <= 0) {
                     //ignore
                     return;
                 }
-                
+
                 for (String namespaceId : allServiceNames.keySet()) {
-                    
+
                     ServiceChecksum checksum = new ServiceChecksum(namespaceId);
-                    
+
                     for (String serviceName : allServiceNames.get(namespaceId)) {
                         if (!distroMapper.responsible(serviceName)) {
                             continue;
                         }
-                        
+
                         Service service = getService(namespaceId, serviceName);
-                        
+
                         if (service == null || service.isEmpty()) {
                             continue;
                         }
-                        
+
                         service.recalculateChecksum();
-                        
+
                         checksum.addItem(serviceName, service.getChecksum());
                     }
-                    
+
                     Message msg = new Message();
-                    
+
                     msg.setData(JacksonUtils.toJson(checksum));
-                    
+
                     Collection<Member> sameSiteServers = memberManager.allMembers();
-                    
+
                     if (sameSiteServers == null || sameSiteServers.size() <= 0) {
                         return;
                     }
-                    
+
                     for (Member server : sameSiteServers) {
                         if (server.getAddress().equals(NetUtils.localServer())) {
                             continue;
@@ -1116,44 +1136,44 @@ public class ServiceManager implements RecordListener<Service> {
                 Loggers.SRV_LOG.error("[DOMAIN-STATUS] Exception while sending service status", e);
             } finally {
                 GlobalExecutor.scheduleServiceReporter(this, switchDomain.getServiceStatusSynchronizationPeriodMillis(),
-                        TimeUnit.MILLISECONDS);
+                    TimeUnit.MILLISECONDS);
             }
         }
     }
-    
+
     private static class ServiceKey {
-        
+
         private String namespaceId;
-        
+
         private String serviceName;
-        
+
         private String serverIP;
-        
+
         private String checksum;
-        
+
         public String getChecksum() {
             return checksum;
         }
-        
+
         public String getServerIP() {
             return serverIP;
         }
-        
+
         public String getServiceName() {
             return serviceName;
         }
-        
+
         public String getNamespaceId() {
             return namespaceId;
         }
-        
+
         public ServiceKey(String namespaceId, String serviceName, String serverIP, String checksum) {
             this.namespaceId = namespaceId;
             this.serviceName = serviceName;
             this.serverIP = serverIP;
             this.checksum = checksum;
         }
-        
+
         @Override
         public String toString() {
             return JacksonUtils.toJson(this);

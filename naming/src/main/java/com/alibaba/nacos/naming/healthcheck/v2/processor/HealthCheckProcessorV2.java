@@ -22,11 +22,11 @@ import com.alibaba.nacos.naming.healthcheck.v2.HealthCheckTaskV2;
 
 /**
  * Health check processor for v2.x.
- *
+ * v2版本的健康检查处理器。限制了它只能用于处理HealthCheckTaskV2类型的任务。
  * @author nkorange
  */
 public interface HealthCheckProcessorV2 {
-    
+
     /**
      * Run check task for service.
      *
@@ -35,7 +35,7 @@ public interface HealthCheckProcessorV2 {
      * @param metadata cluster metadata of current process
      */
     void process(HealthCheckTaskV2 task, Service service, ClusterMetadata metadata);
-    
+
     /**
      * Get check task type, refer to enum HealthCheckType.
      *
